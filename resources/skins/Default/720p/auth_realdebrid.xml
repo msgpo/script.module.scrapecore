@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<window id="90000">
+	<defaultcontrol>92000</defaultcontrol>
+	<allowoverlay>yes</allowoverlay>
+	<animation effect="fade" time="100">WindowOpen</animation>
+	<animation effect="fade" time="100">WindowClose</animation>
+	<coordinates>
+		<posX>200</posX>
+		<posY>100</posY>
+	</coordinates>
+	<controls>
+		<control type="image">
+			<posx>0</posx>
+			<posy>0</posy>
+			<width>1280</width>
+			<height>720</height>
+			<texture>realdebrid/shade.png</texture>
+		</control>
+		<control type="image">
+			<description>window</description>
+			<posx>340</posx>
+			<posy>210</posy>
+			<width>600</width>
+			<height>300</height>
+			<texture>realdebrid/background.png</texture>
+		</control>
+		<control type="image">
+			<description>logo</description>
+			<posx>440</posx>
+			<posy>235</posy>
+			<width>400</width>
+			<height>70</height>
+			<texture>realdebrid/logo.png</texture>
+		</control>
+		<control type="button" id="92000">
+			<posx>905</posx>
+			<posy>215</posy>
+			<width>30</width>
+			<height>30</height>
+			<label></label>
+			<focusedcolor>FFFFFFFF</focusedcolor>
+			<colordiffuse>FFFFFFFF</colordiffuse>
+			<texturefocus>realdebrid/close_hover.png</texturefocus>
+			<texturenofocus>realdebrid/close.png</texturenofocus>
+			<pulseonselect>true</pulseonselect>
+		</control>
+
+		<control type="image" id="91051">
+			<description>Progress</description>
+			<posx>340</posx>
+			<posy>500</posy>
+			<width>600</width>
+			<height>8</height>
+			<texture>realdebrid/progress.png</texture>
+		</control>
+		
+		<control type="label">
+			<posx>340</posx>
+			<posy>320</posy>
+			<width>600</width>
+			<height>100</height>
+			<font>font16_title</font>
+			<align>center</align>
+			<textcolor>lawngreen</textcolor>
+			<label>Enter the code below at:[CR]https://real-debrid.com/device</label>
+		</control>
+		
+		<control type="label" id="91050">
+			<posx>340</posx>
+			<posy>400</posy>
+			<width>600</width>
+			<height>40</height>
+			<font>font16_title</font>
+			<align>center</align>
+			<textcolor>lawngreen</textcolor>
+			<label></label>
+		</control>
+	</controls>
+</window>

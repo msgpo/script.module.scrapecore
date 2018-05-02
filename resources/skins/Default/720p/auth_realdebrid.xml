@@ -22,7 +22,7 @@
 			<posy>210</posy>
 			<width>600</width>
 			<height>300</height>
-			<texture>realdebrid/background.png</texture>
+			<texture>realdebrid/rd_auth.png</texture>
 		</control>
 		<control type="image">
 			<description>logo</description>
@@ -30,26 +30,26 @@
 			<posy>235</posy>
 			<width>400</width>
 			<height>70</height>
-			<texture>realdebrid/logo.png</texture>
+			<texture>realdebrid/realdebrid.png</texture>
 		</control>
 		<control type="button" id="92000">
-			<posx>905</posx>
-			<posy>215</posy>
-			<width>30</width>
+			<posx>897</posx>
+			<posy>210</posy>
+			<width>42</width>
 			<height>30</height>
 			<label></label>
 			<focusedcolor>FFFFFFFF</focusedcolor>
 			<colordiffuse>FFFFFFFF</colordiffuse>
-			<texturefocus>realdebrid/close_hover.png</texturefocus>
-			<texturenofocus>realdebrid/close.png</texturenofocus>
+			<texturefocus>realdebrid/button/close_focus.png</texturefocus>
+			<texturenofocus>realdebrid/button/close_no_focus.png</texturenofocus>
 			<pulseonselect>true</pulseonselect>
 		</control>
 
 		<control type="image" id="91051">
 			<description>Progress</description>
-			<posx>340</posx>
+			<posx>342</posx>
 			<posy>500</posy>
-			<width>600</width>
+			<width>596</width>
 			<height>8</height>
 			<texture>realdebrid/progress.png</texture>
 		</control>

@@ -10,6 +10,7 @@ __pycache__/
 .pydevproject
 .settings/
 *~
+resources/settings.xml
 
 # Distribution / packaging
 .Python

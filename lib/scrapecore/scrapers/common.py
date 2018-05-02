@@ -53,6 +53,7 @@ QUALITY = enum(LOCAL=9, HD1080=8, HD720=7, HD=6, HIGH=5, SD480=4, UNKNOWN=3, LOW
 
 class BaseScraper():
 	session = requests.Session()
+	abort_event = False
 	accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
 	timeout = 5
 	torrent = False
@@ -76,9 +77,11 @@ class BaseScraper():
 	}
 	
 	""" The minimal settings definition. This should be overridden if additional settings are required. """
-	settings_definition = """<setting label="{NAME}" type="lsep" />
-		<setting default="true" id="{SERVICE}_enable" type="bool" label="Enable {NAME}" visible="true"/>
-	"""
+
+	settings_definition = [
+		'<setting label="{NAME}" type="lsep" />',
+		'<setting default="true" id="{SERVICE}_enable" type="bool" label="Enable {NAME}" visible="true" />'
+	]
 	
 	""" The minimum output is a dict of results """
 	base_result = {
@@ -234,6 +237,8 @@ class BaseScraper():
 			return ET.fromstring(response)
 		elif return_type == 'soup':
 			return BeautifulSoup(response)
+		elif return_type == 'dom':
+			return dom_parser.DomObject(response)
 		else:
 			return response
 	
@@ -294,7 +299,7 @@ class BaseScraper():
 		else:
 			response = self.session.get(url, headers=headers, timeout=timeout, verify=False)	
 		response.encoding = 'utf-8'
-		
+		self.last_response = response
 		if response.status_code == requests.codes.ok:
 			html = response.text
 		elif response.status_code == 403 and '<title>Attention Required! | Cloudflare</title>' in response.text:
@@ -329,6 +334,29 @@ class BaseScraper():
 		else:	
 			return False
 
+	def head(self, uri, query=None, headers=None, timeout=None, append_base=True):
+		if headers:
+			if 'Referer' not in headers.keys(): 
+				headers['Referer'] = self.referrer
+			if 'Accept' not in headers.keys():	
+				headers['Accept'] = self.accept
+			if 'User-Agent' not in headers.keys():
+				headers['User-Agent'] = self.get_user_agent()
+		else:
+			headers = {
+			'Referer': self.referrer,
+			'Accept': self.accept,
+			'User-Agent': self.get_user_agent()
+			}
+		
+		url = self.build_url(uri, query, append_base)
+		if url is None: return ''
+
+		if timeout is None:
+			timeout = self.timeout
+		response = self.session.head(url, headers=headers, timeout=timeout, verify=False)
+		return response
+		
 """
 	DirectScraper
 	This type inherits BaseScraper
@@ -400,8 +428,16 @@ class PremiumScraper(BaseScraper):
 	valid = kodi.get_setting('premiumize_enable', ADDON_ID) == 'true' and kodi.get_setting('premiumize_username', ADDON_ID) != '' or kodi.get_setting('realdebrid_enable', ADDON_ID) == 'true' and kodi.get_setting('realdebrid_token', ADDON_ID) != ''
 	
 	def get_domains(self):
-		self.realdebrid_hosts = realdebrid.get_hosts()
-		self.premiumize_hosts = premiumize.get_hosts()
+		if kodi.get_setting('realdebrid_enable', ADDON_ID) == 'true':
+			self.realdebrid_hosts = realdebrid.get_hosts()
+		else:
+			self.realdebrid_hosts = []
+
+		if kodi.get_setting('premiumize_enable', ADDON_ID) == 'true':
+			self.premiumize_hosts = premiumize.get_hosts()
+		else:
+			self.premiumize_hosts = []
+			
 		self.domains = list(set(self.realdebrid_hosts + self.premiumize_hosts))
 		return self.domains
 	
@@ -422,9 +458,13 @@ class PremiumScraper(BaseScraper):
 		return (self.name, self.verified_results)	
 	
 	def resolve_url(self, raw_url):
+		resolved_url = ''
 		host = self.get_domain_from_url(raw_url)
-		if host not in self.domains: return ''
-		resolvers = []
+		if host not in self.get_domains(): return ''
+		from commoncore.dispatcher import WeightedDispatcher
+		dispatcher = WeightedDispatcher()
+		
+		@dispatcher.register(kodi.get_setting('premiumize_priority', ADDON_ID), [raw_url])
 		def pm_resolver(raw_url):
 			if host not in self.premiumize_hosts: return ''
 			try:
@@ -433,8 +473,7 @@ class PremiumScraper(BaseScraper):
 			except:
 				return ''
 
-		resolvers.append([kodi.get_setting('premiumize_priority', ADDON_ID), pm_resolver])
-		
+		@dispatcher.register(kodi.get_setting('realdebrid_priority', ADDON_ID), [raw_url])
 		def rd_resolver(raw_url):
 			if host not in self.realdebrid_hosts: return ''
 			try:
@@ -442,14 +481,13 @@ class PremiumScraper(BaseScraper):
 			except:
 				return ''
 		
-		resolvers.append([kodi.get_setting('realdebrid_priority', ADDON_ID), rd_resolver])
-		resolvers.sort(key=lambda x: x[0], reverse=True)
-		for r in resolvers:
-			r = r[1]
-			resolved_url = r(raw_url)
-			if resolved_url: return resolved_url
-		
-		return ''
+		kodi.open_busy_dialog()
+		try:
+			resolved_url = dispatcher.run()
+		except:
+			kodi.close_busy_dialog()
+		kodi.close_busy_dialog()
+		return resolved_url
 
 """
 	PremiumizeScraper
@@ -505,8 +543,8 @@ class RealDebridScraper(PremiumScraper):
 		self.make_media_object = make_media_object
 	
 	def resolve_url(self, raw_url):
-		return realdebrid.resolve_url(raw_url)
-	
+		resolved_url = realdebrid.resolve_url(raw_url)
+		return resolved_url
 
 
 """
@@ -520,12 +558,12 @@ class RealDebridScraper(PremiumScraper):
 """
 	
 class TorrentScraper(BaseScraper):
-	valid = kodi.get_setting('premiumize_enable', ADDON_ID) == 'true' and kodi.get_setting('premiumize_username', ADDON_ID) != ''
+	valid = (kodi.get_setting('premiumize_enable', ADDON_ID) == 'true' and kodi.get_setting('premiumize_username', ADDON_ID) != '') or kodi.get_setting('realdebrid_enable', ADDON_ID) == 'true'
 	torrent = True
 	return_cached = True
 		
 	def get_hash_from_magnet(self, magnet):
-		match = re.search("btih:([^&]+)&", magnet)
+		match = re.search("btih:([^&]+)&", magnet, re.IGNORECASE)
 		if match:
 			return match.group(1)
 		else:
@@ -537,10 +575,22 @@ class TorrentScraper(BaseScraper):
 			return match.group(1)
 		else:
 			return False
+	
+	def get_hash(self, source):
+		if source[0:6] == 'magnet':
+			return self.get_hash_from_magnet(source)
+		else:
+			return self.get_hash_from_url(source)
 		
 	def check_hashes(self, hashes):
-		return premiumize.check_hashes(hashes)
-	
+		results = {'realdebrid': {}, "premiumize": {}}
+		if kodi.get_setting('realdebrid_enable', ADDON_ID) == 'true':
+			results['realdebrid'] = realdebrid.check_hashes(hashes)
+			
+		if kodi.get_setting('premiumize_enable', ADDON_ID) == 'true':
+			results['premiumize'] = premiumize.check_hashes(hashes)
+		return results
+		
 	def make_media_object(self, obj):
 		media = {'title': obj['service'], "service": obj['service'], 'size': '', "host": obj['host'], "premium": ""}
 		if 'title' in obj and obj['title']: media['title'] = obj['title']
@@ -553,54 +603,108 @@ class TorrentScraper(BaseScraper):
 		media['extension'] = self.get_file_type(media['title'])
 		media['x265'] = self.is_hvec(media['title'])
 		media['hc'] = self.is_hc(media['title'])
-		media['premium'] = 'PM'
+		media['premium'] = 'TOR'
 		media['torrent'] = True
 		return media
 	
+	def get_torrent_services(self):
+		pass
+	
+	def verify_hash(self, hash):
+		if kodi.get_setting('realdebrid_enable', ADDON_ID) == 'true':
+			try:
+				if self.verified_hashes['realdebrid'][hash]['rd'] != []: return True
+			except: pass
+		if kodi.get_setting('premiumize_enable', ADDON_ID) == 'true':
+			try:
+				if self.verified_hashes['premiumize']['hashes'][hash]['status'] == 'finished': return True
+			except: pass
+		return False
+		
+	def verify_results(self, processor, results):
+		hashes = [self.get_hash(r['raw_url']) for r in results]
+		self.verified_hashes = self.check_hashes(hashes)
+		for r in results:
+			hash = self.get_hash(r['raw_url'])
+			if self.verify_hash(hash):
+				self.verify_result([r])
+		return (self.name, self.verified_results)
+	
 	def resolve_url(self, raw_url):
+		from commoncore.dispatcher import WeightedDispatcher
 		resolved_url = ''
+		hash = self.get_hash(raw_url)
+		kodi.set_property('Playback.Hash', hash)
+		
+		dispatcher = WeightedDispatcher()
+		@dispatcher.register(kodi.get_setting('premiumize_priority', ADDON_ID), [raw_url])
+		def premiumize_resolver(raw_url):
+			resolved_url = ''
+			if kodi.get_setting('premiumize_enable', ADDON_ID) != 'true': return resolved_url
+			attempt = 0
+			attempts = 5
+			try:
+				response = premiumize.create_transfer(raw_url)
+				id = response['id']	
+			except:
+				premiumize.clear_transfers()
+				response = premiumize.create_transfer(raw_url)
+				id = response['id']
+			try:	
+				while attempt < attempts:
+					folder_id = False
+					file_id = False
+					target_folder_id = False
+					kodi.log("Resolve Attempt %s" % attempt)
+					temp = premiumize.list_transfers()
+					for t in temp['transfers']:
+						if t['id'] == id and t['status'] == 'finished':
+							if 'target_folder_id' in t: target_folder_id = t['target_folder_id']
+							if 'folder_id' in t: folder_id = t['folder_id']
+							if 'file_id' in t: file_id = t['file_id']
+							break
+					if file_id:
+						response = premiumize.item_details(file_id)
+						resolved_url = response['stream_link']
+						return resolved_url
+					if folder_id:
+						response = premiumize.list_folder(folder_id)
+						resolved_url = premiumize.get_folder_stream(response)
+						return resolved_url
+					if target_folder_id:
+						response = premiumize.list_folder(target_folder_id)
+						resolved_url = premiumize.get_folder_stream(response)
+						return resolved_url
+	
+					attempt += 1
+					kodi.sleep(150)
+			except:
+				pass
+			return resolved_url
+		
+		@dispatcher.register(kodi.get_setting('realdebrid_priority', ADDON_ID), [raw_url])
+		def realdebrid_resolver(raw_url):
+			resolved_url = ''
+			if kodi.get_setting('realdebrid_enable', ADDON_ID) != 'true': return resolved_url
+			response = realdebrid.add_torrent(raw_url)
+			try:
+				torrent_id = response['id']
+				info = realdebrid.get_torrent_info(torrent_id)
+				file_id = realdebrid.get_stream_file(info['files'])
+				if not file_id: return
+				realdebrid.select_torrent_files(torrent_id, file_id)
+				kodi.sleep(500)
+				info = realdebrid.get_torrent_info(torrent_id)
+				raw_url = info['links'][0]
+				resolved_url = realdebrid.resolve_url(raw_url)
+			except: pass
+			return resolved_url
+		
 		kodi.open_busy_dialog()
-		hash = self.get_hash_from_magnet(raw_url)
-		if not hash: hash = self.get_hash_from_url(raw_url)
-		if hash:
-			kodi.set_property('Playback.Hash', hash)
-		else: kodi.clear_property('Playback.Hash')
-		attempt = 0
-		attempts = 5
 		try:
-			response = premiumize.create_transfer(raw_url)
-			id = response['id']	
-		except:
-			premiumize.clear_transfers()
-			response = premiumize.create_transfer(raw_url)
-			id = response['id']
-		try:	
-			while attempt < attempts:
-				folder_id = False
-				file_id = False
-				target_folder_id = False
-				kodi.log("Resolve Attempt %s" % attempt)
-				temp = premiumize.list_transfers()
-
-				for t in temp['transfers']:
-					if t['id'] == id and t['status'] == 'finished':
-						target_folder_id = t['target_folder_id']
-						folder_id = t['folder_id']
-						file_id = t['file_id']
-						break
-				if folder_id:
-					response = premiumize.list_folder(folder_id)
-					resolved_url = premiumize.get_folder_stream(response)
-					break
-				if target_folder_id:
-					response = premiumize.list_folder(target_folder_id)
-					resolved_url = premiumize.get_folder_stream(response)
-					break
-
-				attempt += 1
-				kodi.sleep(150)
+			resolved_url = dispatcher.run()
 		except:
 			kodi.close_busy_dialog()
-
 		kodi.close_busy_dialog()
+		
 		return resolved_url

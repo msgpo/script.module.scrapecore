@@ -81,17 +81,27 @@ def install_scraper(scraper):
 	scraper_id = DB.query("SELECT scraper_id FROM scrapers WHERE service=?", [scraper.service])
 	if not scraper_id:
 		kodi.set_property("new_scraper", "true", 'script.module.scrapecore')
-		settings_definition = scraper.settings_definition.replace("{NAME}", scraper.name)
+		settings_definition = ''
+		for s in scraper.settings_definition:
+			settings_definition += "\n\t\t" + s
+		settings_definition = settings_definition.replace("{NAME}", scraper.name)
 		settings_definition = settings_definition.replace("{SERVICE}", scraper.service)
 		DB.execute("INSERT INTO scrapers(service, name, settings, enabled) VALUES(?,?,?,1)", [scraper.service, scraper.name, settings_definition])
 		DB.commit()
 
+def build_settings():
+	settings = ''
+	settings_file = kodi.vfs.join("special://home", 'addons/%s/resources/settings_template.xml' % ADDON_ID)
+	settings = kodi.vfs.read_file(settings_file)
+	block = "\t<category label=\"Scrapers\">"
+	for s in DB.query_assoc("SELECT settings FROM scrapers ORDER by name ASC", force_double_array=True):
+		block += s['settings']
+	block += "\n\t</category>\n"
+	settings = str(settings.replace("{SCRAPERS_CATEGORY}", block))
+	return settings
+
 def write_settings_file():
 	settings_file = kodi.vfs.join("special://home", 'addons/%s/resources/settings.xml' % ADDON_ID)
-	settings = kodi.vfs.read_file(settings_file, soup=True)
-	block = settings.find('category', {"label": "Scrapers"})
-	for s in block.findAll('setting'): s.decompose()
-	for s in DB.query_assoc("SELECT settings FROM scrapers ORDER by name ASC", force_double_array=True):
-		block.append(BeautifulSoup(s['settings']))
-	kodi.vfs.write_file(settings_file, settings.prettify())
+	settings = build_settings()
+	kodi.vfs.write_file(settings_file, settings)
 

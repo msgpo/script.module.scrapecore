@@ -3,6 +3,7 @@
     <requires>
         <import addon="xbmc.python" version="2.1.0" />
         <import addon="script.module.commoncore" />
+        <import addon="script.module.youtube.dl" />
         <import addon="resource.scrapecore.main" />
         <import addon="master.control" optional="true" />
     </requires>

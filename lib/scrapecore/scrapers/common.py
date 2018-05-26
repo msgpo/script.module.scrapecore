@@ -62,6 +62,13 @@ class BaseScraper():
 	result_count = 0
 	valid = True
 	domains = []
+	
+	def get_setting(self, k):
+		return kodi.get_setting(self.service + '_' + k, 'script.module.scrapecore')
+	
+	def set_setting(self, k):
+		kodi.set_setting(self.service + '_' + k, v, 'script.module.scrapecore')
+	
 	regex = {
 		'hvec': re.compile('([-_\s\.]?(x265)|(hevc)[-_\s\.])', re.IGNORECASE),
 		'hc': re.compile('([-_\s\.]?(HC)[-_\s\.])'),
@@ -140,6 +147,19 @@ class BaseScraper():
 	def parse_dom(self, html, name=u"", attrs={}, ret=False):
 		return dom_parser.parse_dom(html, name, attrs, ret)
 	
+	def decode_entities(self, s):
+		try:
+			from HTMLParser import HTMLParser
+		except ImportError:
+			from html.parser import HTMLParser
+		return HTMLParser().unescape(s)
+	
+	def fuzzy_match(self, a, b):
+		similar = re.compile('[^a-z0-9]')
+		a = similar.sub('', a.lower())
+		b = similar.sub('', b.lower())
+		return a==b
+	
 	""" process_results can be overridden if a specific function should be applied to the individual result prior to being verified """
 	def process_results(self, result):
 		results = []
@@ -213,7 +233,7 @@ class BaseScraper():
 				vfs.rm(cache_file + '.ts', quiet=True)
 				return False
 			else:
-				html = zlib.decompress(vfs.read_file(cache_file))
+				html = zlib.decompress(vfs.read_file(cache_file)).decode('utf-8')
 				kodi.log('Returning cached request')
 				return html
 		return False	
@@ -243,7 +263,7 @@ class BaseScraper():
 			return response
 	
 	def make_media_object(self, obj):
-		media = {'title': obj['service'], "service": obj['service'], 'size': '', "host": obj['host'], "premium": ""}
+		media = {'title': obj['service'], "service": obj['service'], 'size': '', "host": obj['host'], "premium": "", 'torrent': False, "cached": False}
 		if 'title' in obj and obj['title']: media['title'] = obj['title']
 		if 'url' in obj: media['url'] = obj['url']
 		if 'raw_url' in obj: media['raw_url'] = obj['raw_url']
@@ -251,10 +271,12 @@ class BaseScraper():
 		if 'size' in obj: media['size'] = obj['size']
 		if 'quality' in obj: media['quality'] = obj['quality']
 		else : media['quality'] = self.test_quality(media['title'])
+		if media['quality'] == QUALITY.UNKNOWN:
+			media['quality'] = self.test_quality(media['raw_url'])
 		media['extension'] = self.get_file_type(media['title'])
 		media['x265'] = self.is_hvec(media['title'])
 		media['hc'] = self.is_hc(media['title'])
-		media['torrent'] = False
+		media['icon'] = "definition/%s.png" % QUALITY.r_map[media['quality']].lower() 
 		return media
 	
 	def build_url(self, uri, query, append_base):
@@ -290,7 +312,12 @@ class BaseScraper():
 			timeout = self.timeout	
 		
 		if cache_limit > 0:
-			cached_response = self.get_cached_response(url, cache_limit)
+			if params is None:
+				cache_url = url
+			else:
+				cache_url = url + str(params)
+
+			cached_response = self.get_cached_response(cache_url, cache_limit)
 			if cached_response:
 				return self.process_response(cached_response, return_type)
 		
@@ -311,7 +338,7 @@ class BaseScraper():
 			response.raise_for_status()	
 		
 		if cache_limit > 0:
-			self.cache_response(url, html, cache_limit)
+			self.cache_response(cache_url, html, cache_limit)
 			
 		return self.process_response(html, return_type)
 				
@@ -444,6 +471,10 @@ class PremiumScraper(BaseScraper):
 	def verify_result(self, result):
 		if result[0]['host'] not in self.domains: return
 		media = self.make_media_object(result[0])
+		#if kodi.get_setting('realdebrid_enable', ADDON_ID) == 'true':
+		#	cached = realdebrid.verify_link(media['raw_url'])
+		#	if cached is not None and 'supported' in cached and cached['supported']:
+		#		media['cached'] = True
 		self.verified_results.append(media)
 		
 	def verify_results(self, processor, results):
@@ -499,13 +530,13 @@ class PremiumScraper(BaseScraper):
 class PremiumizeScraper(PremiumScraper):
 	valid = kodi.get_setting('premiumize_enable', ADDON_ID) == 'true' and kodi.get_setting('premiumize_username', ADDON_ID) != ''
 	
-	def __init__(self):
+	'''def __init__(self):
 		self._make_media_object = self.make_media_object
 		def make_media_object(obj):
 			media = self._make_media_object(obj)
 			media['premium'] = 'PM'
 			return media
-		self.make_media_object = make_media_object
+		self.make_media_object = make_media_object'''
 	
 	def verify_result(self, result):
 		if result[0]['host'] not in self.domains: return
@@ -534,13 +565,13 @@ class RealDebridScraper(PremiumScraper):
 	def get_domains(self):
 		self.domains = realdebrid.get_hosts()
 	
-	def __init__(self):
+	'''def __init__(self):
 		self._make_media_object = self.make_media_object
 		def make_media_object(obj):
 			media = self._make_media_object(obj)
 			media['premium'] = 'RD'
 			return media
-		self.make_media_object = make_media_object
+		self.make_media_object = make_media_object'''
 	
 	def resolve_url(self, raw_url):
 		resolved_url = realdebrid.resolve_url(raw_url)
@@ -561,6 +592,14 @@ class TorrentScraper(BaseScraper):
 	valid = (kodi.get_setting('premiumize_enable', ADDON_ID) == 'true' and kodi.get_setting('premiumize_username', ADDON_ID) != '') or kodi.get_setting('realdebrid_enable', ADDON_ID) == 'true'
 	torrent = True
 	return_cached = True
+	
+	def __init__(self):
+		self._make_media_object = self.make_media_object
+		def make_media_object(obj):
+			media = self._make_media_object(obj)
+			media['torrent'] = True
+			return media
+		self.make_media_object = make_media_object
 		
 	def get_hash_from_magnet(self, magnet):
 		match = re.search("btih:([^&]+)&", magnet, re.IGNORECASE)
@@ -591,22 +630,6 @@ class TorrentScraper(BaseScraper):
 			results['premiumize'] = premiumize.check_hashes(hashes)
 		return results
 		
-	def make_media_object(self, obj):
-		media = {'title': obj['service'], "service": obj['service'], 'size': '', "host": obj['host'], "premium": ""}
-		if 'title' in obj and obj['title']: media['title'] = obj['title']
-		if 'url' in obj: media['url'] = obj['url']
-		if 'raw_url' in obj: media['raw_url'] = obj['raw_url']
-		if 'host_icon' in obj: media['host_icon'] = obj['host_icon']
-		if 'size' in obj: media['size'] = obj['size']
-		if 'quality' in obj: media['quality'] = obj['quality']
-		else : media['quality'] = self.test_quality(media['title'])
-		media['extension'] = self.get_file_type(media['title'])
-		media['x265'] = self.is_hvec(media['title'])
-		media['hc'] = self.is_hc(media['title'])
-		media['premium'] = 'TOR'
-		media['torrent'] = True
-		return media
-	
 	def get_torrent_services(self):
 		pass
 	
@@ -666,14 +689,20 @@ class TorrentScraper(BaseScraper):
 					if file_id:
 						response = premiumize.item_details(file_id)
 						resolved_url = response['stream_link']
+						kodi.set_property('Playback.Resolver', 'premiumize')
+						kodi.set_property('Playback.ID', file_id)
 						return resolved_url
 					if folder_id:
 						response = premiumize.list_folder(folder_id)
 						resolved_url = premiumize.get_folder_stream(response)
+						kodi.set_property('Playback.Resolver', 'premiumize')
+						kodi.set_property('Playback.ID', folder_id)
 						return resolved_url
 					if target_folder_id:
 						response = premiumize.list_folder(target_folder_id)
 						resolved_url = premiumize.get_folder_stream(response)
+						kodi.set_property('Playback.Resolver', 'premiumize')
+						kodi.set_property('Playback.ID', target_folder_id)
 						return resolved_url
 	
 					attempt += 1
@@ -696,6 +725,8 @@ class TorrentScraper(BaseScraper):
 				kodi.sleep(500)
 				info = realdebrid.get_torrent_info(torrent_id)
 				raw_url = info['links'][0]
+				kodi.set_property('Playback.Resolver', 'realdebrid')
+				kodi.set_property('Playback.ID', torrent_id)
 				resolved_url = realdebrid.resolve_url(raw_url)
 			except: pass
 			return resolved_url
@@ -703,7 +734,8 @@ class TorrentScraper(BaseScraper):
 		kodi.open_busy_dialog()
 		try:
 			resolved_url = dispatcher.run()
-		except:
+		except Exception, e:
+			kodi.log(e)
 			kodi.close_busy_dialog()
 		kodi.close_busy_dialog()
 		

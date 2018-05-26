@@ -30,6 +30,19 @@ def main():
 	kodi.add_menu_item({'mode': 'addon_settings'}, {'title': "Settings"}, icon='settings.png')
 	kodi.eod()
 
+@kodi.register('scraper_browser')
+def scraper_browser():
+	if 'media' not in kodi.args:
+		kodi.add_menu_item({'mode': 'scraper_browser', 'media': "shows"}, {'title': "Browse Shows"}, icon='')
+		kodi.add_menu_item({'mode': 'scraper_browser', 'media': "movies"}, {'title': "Browse Movies"}, icon='')
+	else:
+		from lib.scrapecore import scrapers
+		services = scrapers.get_browsable_scrapers(kodi.args['media'])
+		for service, name in services:
+			kodi.add_menu_item({'mode': 'browse_service', "service": service, "media": kodi.args['media']}, {'title': "Browse: %s" % name}, icon='browse.png')
+	kodi.eod()
+
+
 @kodi.register('scraper_list')
 def scraper_list():
 	for s in scrapecore.get_scrapers():
@@ -37,8 +50,16 @@ def scraper_list():
 			title = format_color(s['name'], 'green')
 		else:
 			title = format_color(s['name'], 'maroon')
-		kodi.add_menu_item({'mode': 'toggle_scraper', "service": s['service']}, {'title': title}, icon='')
+		menu = kodi.ContextMenu()
+		menu.add('Uninstall Scraper', {"mode": "uninstall_scraper", "service": s['service'], "name": s['name']})
+		kodi.add_menu_item({'mode': 'toggle_scraper', "service": s['service']}, {'title': title}, icon='', menu=menu)
 	kodi.eod()
+
+@kodi.register('uninstall_scraper')
+def uninstall_scraper():
+	if kodi.dialog_confirm("Click YES to proceed", "Uninstall scraper?", kodi.args['name']):
+		scrapecore.delete_scraper(kodi.args['service'])
+		kodi.refresh()
 
 @kodi.register('resource_list')
 def resource_list():
@@ -55,7 +76,6 @@ def rebuild_settings():
 def auth_realdebrid():
 	from commoncore import realdebrid
 	realdebrid.authorize()
-
 
 @kodi.register('toggle_scraper')
 def toggle_scraper():

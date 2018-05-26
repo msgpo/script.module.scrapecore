@@ -48,7 +48,7 @@ class ScrapeCore(object):
 	abort_event = Event()
 	results = []
 	active_scrapers = {}
-	count = 0
+	result_count = 0
 	
 	def __init__(self, supported_scrapers, load_list=None, ignore_list=[]):
 		# Verify each scraper is enabled removing ignored
@@ -86,8 +86,8 @@ class ScrapeCore(object):
 		verified = {v['raw_url']:v for v in verified}.values()
 		self.results += verified
 		search_count = len(verified)
-		self.count += search_count
-		self.PB.next("Total Results: [COLOR green]%s[/COLOR]" % self.count, "Found [COLOR green]%s[/COLOR] links from [COLOR orange]%s[/COLOR]" % (search_count, name))
+		self.result_count += search_count
+		self.PB.next("Total Results: [COLOR green]%s[/COLOR]" % self.result_count, "Found [COLOR green]%s[/COLOR] links from [COLOR orange]%s[/COLOR]" % (search_count, name))
 
 	def format_results(self, results):
 		if self.abort_event.is_set():
@@ -95,19 +95,19 @@ class ScrapeCore(object):
 			return []
 		self.PB.update_subheading('Processing Results', '')
 		self.PB.update_subheading('Processing Results', 'Formating Results...')
+		regex_host = re.compile("\.\S+$")
 		for r in results:
-			attribs = [r['host'].upper()]
+			service = r['service'].upper()
+			host = format_color(regex_host.sub("", r['host'].upper()), 'darkred')
+			#if r['cached']: host += " " + format_color('*', 'yellow')
+			attribs = [service, host]
 			if r['size']: r['size_sort'] = int(r['size'])
 			else: r['size_sort'] = 0
 			if r['size']: attribs += [format_color(format_size(r['size']), 'blue')]
-			if 'premium' in r and r['premium']: attribs += [format_color(r['premium'], 'green')]
-			if r['title']:
-				title = r['title']
-				#for h,c in [('x264', 'orange'), ('H.264', 'orange'), ('H264', 'orange'), ('x265', 'yellow')]:
-				#	title = highlight(title, h, c)
-				attribs += [title]
+			if r['title']: attribs += [r['title']]
 			display = ' | '.join(attribs)
 			self.results[results.index(r)]['display'] = display
+			
 		kodi.sleep(250)
 		self.PB.update_subheading('Processing Results', 'Removing Duplicates...')
 		kodi.sleep(250)
@@ -169,6 +169,7 @@ kodi.set_property("new_scraper", "false", 'script.module.scrapecore')
 available = scrapecore.get_installed_resources()
 ignore_list = ['__init__.py', '__all__.py', 'common.py', 'example.py']
 # Load scrapers from each module serially
+
 for mod in available:
 	path = kodi.vfs.join(mod['path'], 'scrapers')
 	sys.path.append(path)
@@ -208,3 +209,32 @@ def search(media, title, season=None, episode=None, year=None, episode_title=Non
 
 def get_scraper_by_name(service):
 	return ScrapeCore(supported_scrapers).active_scrapers[service]
+
+def get_browsable_scrapers(media):
+	browsable = []
+	SC = ScrapeCore(supported_scrapers)
+	for service in SC.active_scrapers:
+		if 'list_%s' % media in dir(SC.active_scrapers[service]):
+			browsable.append((service, SC.active_scrapers[service].name))
+	return browsable
+
+def list_shows(service):
+	s = get_scraper_by_name(service)
+	if 'list_shows' in dir(s):
+		return s.list_shows()
+	else:
+		return []
+	
+def list_episodes(service, url):
+	s = get_scraper_by_name(service)
+	if 'list_shows' in dir(s):
+		return s.list_episodes(url)
+	else:
+		return []	
+
+def list_movies(service):
+	s = get_scraper_by_name(service)
+	if 'list_movies' in dir(s):
+		return s.list_movies()
+	else:
+		return []

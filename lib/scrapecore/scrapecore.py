@@ -43,9 +43,25 @@ class API(DB_CACHABLE_API):
 	base_url = ''
 api = API()
 
+search_path = []
+
+def delete_torrent(resolver, hash, id):
+	if resolver == 'premiumize':
+		from commoncore import premiumize
+		premiumize.clear_torrent(hash, id)
+	elif resolver == 'realdebrid':
+		from commoncore import realdebrid
+		realdebrid.delete_torrent(id)
 
 def get_installed_resources():
-	results = []
+	global search_path
+	import os
+	main = kodi.vfs.join(os.path.dirname(os.path.abspath(__file__)), 'scrapers')
+	results = [{'path': main, 'name': 'ScrapeCore', 'addonid': 'script.module.scrapecore'}]
+	test_path = kodi.vfs.join(kodi.get_path(), 'resources/scrapers/')
+	if kodi.vfs.exists(test_path):
+		results += [{'path': kodi.vfs.join(kodi.get_path(), 'resources'), 'name': kodi.get_name(), 'addonid': kodi.get_id()}]
+	
 	temp = kodi.kodi_json_request("Addons.GetAddons", { "installed": True, 'type': 'kodi.resource.images', "properties": ["path", "name"]})
 	for a in temp['result']['addons']:
 		if a['type'] == 'kodi.resource.images' and a['addonid'].startswith('resource.scrapecore.'):
@@ -88,6 +104,11 @@ def install_scraper(scraper):
 		settings_definition = settings_definition.replace("{SERVICE}", scraper.service)
 		DB.execute("INSERT INTO scrapers(service, name, settings, enabled) VALUES(?,?,?,1)", [scraper.service, scraper.name, settings_definition])
 		DB.commit()
+
+def delete_scraper(service):
+	DB.execute("DELETE FROM scrapers WHERE service=?", [service])
+	DB.commit()
+	write_settings_file()
 
 def build_settings():
 	settings = ''
